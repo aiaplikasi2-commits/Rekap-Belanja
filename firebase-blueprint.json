@@ -1,0 +1,69 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "User profile data for CV KUJANG LUHUR SEKAWAN app users",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "displayName": { "type": "string" },
+        "companyName": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["uid", "email"]
+    },
+    "Transaction": {
+      "title": "Belanja Transaction",
+      "description": "Transaction records imported from PDF invoice with original notes",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "satdikName": { "type": "string" },
+        "invoiceDocNumber": { "type": "string" },
+        "date": { "type": "string" },
+        "year": { "type": "number" },
+        "month": { "type": "string" },
+        "totalAmount": { "type": "number" },
+        "hasInvoicePdf": { "type": "boolean" },
+        "invoicePdfData": { "type": "string" },
+        "invoiceFileName": { "type": "string" },
+        "hasNota": { "type": "boolean" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" },
+        "pdfHash": { "type": "string" }
+      },
+      "required": ["id", "userId", "satdikName", "date", "totalAmount"]
+    },
+    "Customer": {
+      "title": "Customer Data",
+      "description": "Customer and Satdik records",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "name": { "type": "string" },
+        "code": { "type": "string" },
+        "phone": { "type": "string" },
+        "address": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "name"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profile records"
+    },
+    "/transactions/{transactionId}": {
+      "schema": "Transaction",
+      "description": "Belanja transaction records"
+    },
+    "/customers/{customerId}": {
+      "schema": "Customer",
+      "description": "Customer list"
+    }
+  }
+}

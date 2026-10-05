@@ -1,0 +1,6 @@
+{
+  "name": "REKAP BELANJA ONLINE",
+  "description": "Aplikasi Rekap Belanja Full Online dengan Fitur Import PDF, Nota Asli, Export Excel, dan Share Android.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
