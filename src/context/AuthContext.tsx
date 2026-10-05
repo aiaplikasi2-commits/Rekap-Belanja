@@ -38,9 +38,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const userRef = doc(db, 'users', currentUser.uid);
         let profileData: UserProfile | null = null;
 
+        const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 1000));
         try {
-          const docSnap = await getDoc(userRef);
-          if (docSnap.exists()) {
+          const docSnap = await Promise.race([getDoc(userRef), timeoutPromise]);
+          if (docSnap && docSnap.exists()) {
             profileData = docSnap.data() as UserProfile;
           }
         } catch (error) {

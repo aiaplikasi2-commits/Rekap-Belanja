@@ -1,7 +1,7 @@
 import { GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
 import { auth } from '../firebase/config';
 
-// In-memory token cache (never stored in localStorage/sessionStorage per skill directives)
+// In-memory token cache
 let cachedDriveAccessToken: string | null = null;
 
 export function setCachedDriveToken(token: string | null) {
@@ -13,14 +13,25 @@ export function getCachedDriveToken(): string | null {
 }
 
 /**
- * Request Google Drive OAuth permission from user via popup
+ * Request Google Drive OAuth permission from user via popup with 6s timeout race
  */
 export async function authenticateGoogleDrive(): Promise<string> {
   const provider = new GoogleAuthProvider();
   provider.addScope('https://www.googleapis.com/auth/drive.file');
 
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    setTimeout(() => {
+      reject(
+        new Error(
+          'Pop-up otorisasi Google diblokir oleh browser atau tidak merespon. Silakan izinkan pop-up browser atau gunakan tombol Buka Folder Google Drive.'
+        )
+      );
+    }, 6000);
+  });
+
   try {
-    const result = await signInWithPopup(auth, provider);
+    const authPromise = signInWithPopup(auth, provider);
+    const result = await Promise.race([authPromise, timeoutPromise]);
     const credential = GoogleAuthProvider.credentialFromResult(result);
 
     if (!credential?.accessToken) {
@@ -32,12 +43,15 @@ export async function authenticateGoogleDrive(): Promise<string> {
   } catch (error: any) {
     console.error('Error authenticating Google Drive:', error);
     if (error?.code === 'auth/popup-closed-by-user') {
-      throw new Error('Proses login Google dibatalkan.');
+      throw new Error('Proses login Google dibatalkan oleh pengguna.');
     }
     if (error?.code === 'auth/access-denied') {
-      throw new Error('Izin akses Google Drive ditolak oleh pengguna.');
+      throw new Error('Izin akses Google Drive ditolak.');
     }
-    throw new Error(error?.message || 'Gagal melakukan otorisasi akun Google.');
+    throw new Error(
+      error?.message ||
+        'Gagal otorisasi Google Drive. Gunakan opsi Buka Folder Drive Pengaturan.'
+    );
   }
 }
 

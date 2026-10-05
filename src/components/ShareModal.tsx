@@ -230,14 +230,30 @@ export const ShareModal: React.FC<ShareModalProps> = ({ transaction, onClose }) 
 
         {/* STATE 3: ERROR UPLOAD */}
         {driveStatus === 'error' && (
-          <div className="py-4 text-center space-y-3 bg-rose-50 p-4 rounded-2xl border border-rose-200">
-            <div className="w-10 h-10 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mx-auto">
+          <div className="py-4 text-center space-y-3 bg-amber-50 p-4 rounded-2xl border border-amber-200">
+            <div className="w-10 h-10 bg-amber-100 text-amber-700 rounded-full flex items-center justify-center mx-auto">
               <AlertCircle className="w-6 h-6" />
             </div>
             <div>
-              <h4 className="font-bold text-sm text-rose-900">Gagal Mengunggah ke Google Drive</h4>
-              <p className="text-xs text-rose-700 mt-1">{errorMessage}</p>
+              <h4 className="font-bold text-sm text-slate-900">Pop-up Google Diblokir / Bermasalah</h4>
+              <p className="text-xs text-slate-600 mt-1">{errorMessage}</p>
             </div>
+
+            <div className="p-3 bg-white rounded-xl border border-amber-200 text-left space-y-2">
+              <p className="text-[11px] font-bold text-slate-800">💡 Cara Alternatif Tanpa Pop-up Login:</p>
+              <button
+                type="button"
+                onClick={() => {
+                  handleExcelDownload();
+                  window.open(configuredFolderUrl || 'https://drive.google.com/drive/u/0/my-drive', '_blank');
+                }}
+                className="w-full py-2.5 px-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-2 shadow transition"
+              >
+                <Folder className="w-4 h-4 text-indigo-200" />
+                <span>Download File & Buka Google Drive ↗</span>
+              </button>
+            </div>
+
             <div className="flex gap-2 pt-1">
               <button
                 type="button"
@@ -249,9 +265,9 @@ export const ShareModal: React.FC<ShareModalProps> = ({ transaction, onClose }) 
               <button
                 type="button"
                 onClick={handleUploadExcelToDrive}
-                className="flex-1 py-2 bg-rose-600 text-white font-semibold text-xs rounded-xl shadow"
+                className="flex-1 py-2 bg-indigo-700 text-white font-semibold text-xs rounded-xl shadow"
               >
-                COBA LAGI
+                COBA LAGI API
               </button>
             </div>
           </div>

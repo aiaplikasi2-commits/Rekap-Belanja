@@ -38,9 +38,9 @@ export async function getUserSettingsOnline(userId: string): Promise<AppSettings
   const local = getLocalSettings();
   if (!userId) return local;
 
-  // Set 3s timeout for fetching online settings so UI is never blocked
+  // 1s timeout race for fetching online settings so UI is never blocked
   const timeoutPromise = new Promise<AppSettings>((resolve) => {
-    setTimeout(() => resolve(local), 3000);
+    setTimeout(() => resolve(local), 1000);
   });
 
   const fetchPromise = (async () => {
@@ -62,31 +62,22 @@ export async function getUserSettingsOnline(userId: string): Promise<AppSettings
   return Promise.race([fetchPromise, timeoutPromise]);
 }
 
-export async function saveUserSettingsOnline(
+/**
+ * Save settings instantly to local storage and sync to Firestore asynchronously in background.
+ */
+export function saveUserSettingsOnline(
   userId: string,
   settings: Partial<AppSettings>
-): Promise<AppSettings> {
-  // Save to local storage first for instant response
+): AppSettings {
+  // Save to local storage first for instant 0ms response
   const updated = saveLocalSettings(settings);
   if (!userId) return updated;
 
-  // Set 3s timeout for online sync
-  const timeoutPromise = new Promise<AppSettings>((resolve) => {
-    setTimeout(() => {
-      console.warn('Online settings write timed out, saved locally.');
-      resolve(updated);
-    }, 3000);
+  // Non-blocking background sync to Firestore
+  const docRef = doc(db, 'settings', userId);
+  setDoc(docRef, updated, { merge: true }).catch((err) => {
+    console.warn('Background settings write deferred:', err);
   });
 
-  const writePromise = (async () => {
-    try {
-      const docRef = doc(db, 'settings', userId);
-      await setDoc(docRef, updated, { merge: true });
-    } catch (err) {
-      console.warn('Error saving settings online, saved to local storage:', err);
-    }
-    return updated;
-  })();
-
-  return Promise.race([writePromise, timeoutPromise]);
+  return updated;
 }

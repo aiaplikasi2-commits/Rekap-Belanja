@@ -288,7 +288,7 @@ export const ImportPdfView: React.FC<ImportPdfViewProps> = ({ onSuccess, onNavig
     };
 
     try {
-      await saveTransactionOnline(newTx);
+      saveTransactionOnline(newTx);
 
       // Auto-record Satdik into Customer database for this user
       try {

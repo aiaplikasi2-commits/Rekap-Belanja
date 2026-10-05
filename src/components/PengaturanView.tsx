@@ -32,7 +32,7 @@ export const PengaturanView: React.FC = () => {
     }
   }, [user]);
 
-  const handleSaveSettings = async (e: React.FormEvent) => {
+  const handleSaveSettings = (e: React.FormEvent) => {
     e.preventDefault();
     if (!user?.uid) return;
 
@@ -40,7 +40,7 @@ export const PengaturanView: React.FC = () => {
     setSavedSuccess(false);
 
     try {
-      await saveUserSettingsOnline(user.uid, {
+      saveUserSettingsOnline(user.uid, {
         googleDriveFolderUrl: driveUrl.trim(),
         companyName: companyName.trim(),
       });
@@ -129,12 +129,9 @@ export const PengaturanView: React.FC = () => {
 
             <button
               type="submit"
-              disabled={saving}
-              className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow flex items-center gap-2 transition active:scale-95 disabled:opacity-50"
+              className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow flex items-center gap-2 transition active:scale-95"
             >
-              {saving ? (
-                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-              ) : savedSuccess ? (
+              {savedSuccess ? (
                 <>
                   <Check className="w-4 h-4 text-emerald-300" />
                   <span>BERHASIL DISIMPAN!</span>
