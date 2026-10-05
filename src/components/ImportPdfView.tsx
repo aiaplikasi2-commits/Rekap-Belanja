@@ -11,6 +11,7 @@ import {
   saveTransactionOnline,
 } from '../services/transactionService';
 import { saveCustomerOnline } from '../services/customerService';
+import { compressImageDataUrl } from '../services/imageCompression';
 import {
   formatRupiah,
   sanitizeFileName,
@@ -141,6 +142,24 @@ export const ImportPdfView: React.FC<ImportPdfViewProps> = ({ onSuccess, onNavig
     }
   };
 
+  const handleStartManualInput = () => {
+    setSatdikName('');
+    setDocNumber('');
+    setItems([
+      {
+        no: 1,
+        itemName: '',
+        quantity: 1,
+        price: 0,
+        totalItem: 0,
+      },
+    ]);
+    setSelectedIndices([0]);
+    setNotaPhotos([]);
+    setErrorMessage('');
+    setStep('review');
+  };
+
   // Checkbox handlers
   const toggleSelectAll = () => {
     if (selectedIndices.length === items.length) {
@@ -210,7 +229,11 @@ export const ImportPdfView: React.FC<ImportPdfViewProps> = ({ onSuccess, onNavig
 
     Array.from(files).forEach((file, index) => {
       const reader = new FileReader();
-      reader.onload = () => {
+      reader.onload = async () => {
+        const rawUrl = reader.result as string;
+        // Compress image on capture for fast upload and Firestore compatibility
+        const compressedUrl = await compressImageDataUrl(rawUrl, 900, 900, 0.65);
+
         const nextIndex = notaPhotos.length + index + 1;
         const padNum = String(nextIndex).padStart(2, '0');
         const formattedFileName = `${cleanSatdik} - NOTA ${padNum}.jpg`;
@@ -218,7 +241,7 @@ export const ImportPdfView: React.FC<ImportPdfViewProps> = ({ onSuccess, onNavig
         const newNota: NotaPhoto = {
           id: `NOTA-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
           fileName: formattedFileName,
-          dataUrl: reader.result as string,
+          dataUrl: compressedUrl,
           uploadedAt: new Date().toISOString(),
         };
 
@@ -298,7 +321,7 @@ export const ImportPdfView: React.FC<ImportPdfViewProps> = ({ onSuccess, onNavig
     };
 
     try {
-      await saveTransactionOnline(newTx);
+      const savedTx = await saveTransactionOnline(newTx);
 
       // Auto-record Satdik into Customer database for this user
       try {
@@ -312,11 +335,12 @@ export const ImportPdfView: React.FC<ImportPdfViewProps> = ({ onSuccess, onNavig
         console.warn('Auto save customer info:', cErr);
       }
 
-      setSavedTransaction(newTx);
+      setSavedTransaction(savedTx);
       setStep('saved');
-      onSuccess(newTx);
+      onSuccess(savedTx);
     } catch (err: any) {
-      setErrorMessage(err.message || 'Gagal menyimpan transaksi online.');
+      console.error('Save transaction error:', err);
+      setErrorMessage(err.message || 'Gagal menyimpan transaksi online. Periksa koneksi internet Anda.');
     } finally {
       setSaving(false);
     }
@@ -363,16 +387,27 @@ export const ImportPdfView: React.FC<ImportPdfViewProps> = ({ onSuccess, onNavig
             </p>
           </div>
 
-          <label className="inline-flex items-center justify-center gap-2 px-6 py-3.5 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white font-semibold text-sm rounded-xl shadow-lg shadow-blue-600/30 cursor-pointer transition active:scale-95">
-            <FileText className="w-5 h-5" />
-            <span>PILIH PDF DARI HP</span>
-            <input
-              type="file"
-              accept=".pdf,application/pdf"
-              onChange={handlePdfSelected}
-              className="hidden"
-            />
-          </label>
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
+            <label className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3.5 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white font-semibold text-sm rounded-xl shadow-lg shadow-blue-600/30 cursor-pointer transition active:scale-95">
+              <FileText className="w-5 h-5" />
+              <span>PILIH PDF DARI HP</span>
+              <input
+                type="file"
+                accept=".pdf,application/pdf"
+                onChange={handlePdfSelected}
+                className="hidden"
+              />
+            </label>
+
+            <button
+              type="button"
+              onClick={handleStartManualInput}
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold text-sm rounded-xl border border-slate-300 transition active:scale-95"
+            >
+              <Edit3 className="w-5 h-5 text-slate-600" />
+              <span>✏️ INPUT MANUALLY (TANPA PDF)</span>
+            </button>
+          </div>
         </div>
       )}
 

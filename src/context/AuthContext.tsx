@@ -36,23 +36,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUser(currentUser);
       if (currentUser) {
         const userRef = doc(db, 'users', currentUser.uid);
+        const fallbackProfile: UserProfile = {
+          uid: currentUser.uid,
+          email: currentUser.email || '',
+          displayName: currentUser.displayName || 'Pengguna',
+          companyName: 'CV KUJANG LUHUR SEKAWAN',
+          createdAt: new Date().toISOString(),
+        };
+
         try {
           const docSnap = await getDoc(userRef);
           if (docSnap.exists()) {
             setProfile(docSnap.data() as UserProfile);
           } else {
-            const newProfile: UserProfile = {
-              uid: currentUser.uid,
-              email: currentUser.email || '',
-              displayName: currentUser.displayName || 'Pengguna',
-              companyName: 'CV KUJANG LUHUR SEKAWAN',
-              createdAt: new Date().toISOString(),
-            };
-            await setDoc(userRef, newProfile);
-            setProfile(newProfile);
+            setProfile(fallbackProfile);
+            setDoc(userRef, fallbackProfile).catch((err) => {
+              console.warn('Could not sync user profile online:', err);
+            });
           }
         } catch (error) {
-          console.error('Error fetching/creating user profile:', error);
+          console.warn('Offline or network error fetching user profile, using fallback profile:', error);
+          setProfile(fallbackProfile);
         }
       } else {
         setProfile(null);
@@ -80,7 +84,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       await setDoc(doc(db, 'users', res.user.uid), newProfile);
       setProfile(newProfile);
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, `users/${res.user.uid}`);
+      // Set local profile even if offline write fails
+      setProfile(newProfile);
+      console.warn('Set profile offline:', err);
     }
   };
 

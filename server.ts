@@ -87,20 +87,32 @@ Kembalikan HANYA format JSON berikut tanpa markdown atau teks tambahan:
 }
     `;
 
+    const candidateModels = ['gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-1.5-flash'];
     let responseText = '';
-    try {
-      const response = await ai.models.generateContent({
-        model: 'gemini-3.8-flash',
-        contents: [...imageParts, prompt],
+    let lastError: any = null;
+
+    for (const modelName of candidateModels) {
+      try {
+        const response = await ai.models.generateContent({
+          model: modelName,
+          contents: [...imageParts, prompt],
+        });
+        if (response.text) {
+          responseText = response.text;
+          break;
+        }
+      } catch (err: any) {
+        lastError = err;
+        console.warn(`Model ${modelName} failed or quota exceeded:`, err?.message || err);
+      }
+    }
+
+    if (!responseText) {
+      return res.status(429).json({
+        quotaExceeded: true,
+        error: 'Batas kuota harian Gemini AI tercapai. Mengalihkan ke ekstraktor PDF lokal.',
+        details: lastError?.message || 'Quota exceeded',
       });
-      responseText = response.text || '';
-    } catch (modelErr) {
-      console.warn('Gemini 3.8 flash failed, retrying with gemini-flash-latest:', modelErr);
-      const fallbackResponse = await ai.models.generateContent({
-        model: 'gemini-flash-latest',
-        contents: [...imageParts, prompt],
-      });
-      responseText = fallbackResponse.text || '';
     }
 
     const jsonMatch = responseText.match(/\{[\s\S]*\}/);

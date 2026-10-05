@@ -26,6 +26,9 @@ export const AuthPage: React.FC = () => {
         if (!email || !password) {
           throw new Error('Silakan isi email dan password.');
         }
+        if (password.length < 6) {
+          throw new Error('Password minimal 6 karakter.');
+        }
         await registerWithEmail(email, password, displayName);
       } else if (mode === 'reset') {
         if (!email) {
@@ -35,7 +38,29 @@ export const AuthPage: React.FC = () => {
         setSuccess('Link reset password telah dikirim ke email Anda.');
       }
     } catch (err: any) {
-      setError(err.message || 'Terjadi kesalahan saat masuk.');
+      console.error('Auth error:', err);
+      const errCode = err.code || '';
+      const errMsg = err.message || '';
+
+      if (errCode === 'auth/operation-not-allowed' || errMsg.includes('operation-not-allowed')) {
+        setError(
+          'Metode pendaftaran Email & Password belum diaktifkan di Firebase Console. Silakan gunakan tombol "Masuk dengan Google" di bawah untuk login instan!'
+        );
+      } else if (errCode === 'auth/email-already-in-use') {
+        setError('Email ini sudah terdaftar. Silakan pilih menu "Kembali ke Login".');
+      } else if (errCode === 'auth/weak-password') {
+        setError('Password terlalu lemah/pendek. Minimal 6 karakter.');
+      } else if (errCode === 'auth/invalid-email') {
+        setError('Format alamat email tidak valid.');
+      } else if (
+        errCode === 'auth/user-not-found' ||
+        errCode === 'auth/wrong-password' ||
+        errCode === 'auth/invalid-credential'
+      ) {
+        setError('Email atau password yang Anda masukkan tidak sesuai.');
+      } else {
+        setError(errMsg || 'Terjadi kesalahan saat pendaftaran/login.');
+      }
     } finally {
       setLoading(false);
     }

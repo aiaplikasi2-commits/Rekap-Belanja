@@ -170,19 +170,21 @@ satdikName, docNumber, items: [ { no, itemName, quantity, price, totalItem, need
 Format JSON saja. untuk itemName ambil nama utamanya saja, abaikan rincian perkaliannya.
       `;
 
+      const candidateModels = ['gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-1.5-flash'];
       let responseText = '';
-      try {
-        const response = await ai.models.generateContent({
-          model: 'gemini-3.8-flash',
-          contents: [...imageParts, prompt],
-        });
-        responseText = response.text || '';
-      } catch (clientModelErr) {
-        const fallbackRes = await ai.models.generateContent({
-          model: 'gemini-flash-latest',
-          contents: [...imageParts, prompt],
-        });
-        responseText = fallbackRes.text || '';
+      for (const mName of candidateModels) {
+        try {
+          const response = await ai.models.generateContent({
+            model: mName,
+            contents: [...imageParts, prompt],
+          });
+          if (response.text) {
+            responseText = response.text;
+            break;
+          }
+        } catch (mErr) {
+          console.warn(`Client model ${mName} error:`, mErr);
+        }
       }
 
       const jsonMatch = responseText.match(/\{[\s\S]*\}/);

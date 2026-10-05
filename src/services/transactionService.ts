@@ -11,6 +11,7 @@ import {
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase/config';
 import { Transaction, NotaPhoto } from '../types';
+import { sanitizeTransactionForFirestore, compressImageDataUrl } from './imageCompression';
 
 export function generateTransactionId(): string {
   const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
@@ -39,17 +40,28 @@ export async function checkDuplicatePdf(
     }
     return null;
   } catch (error) {
-    handleFirestoreError(error, OperationType.LIST, path);
+    console.warn('Check duplicate error:', error);
     return null;
   }
 }
 
-export async function saveTransactionOnline(transaction: Transaction): Promise<void> {
+export async function saveTransactionOnline(transaction: Transaction): Promise<Transaction> {
   const path = `transactions/${transaction.id}`;
   try {
-    await setDoc(doc(db, 'transactions', transaction.id), transaction);
-  } catch (error) {
-    handleFirestoreError(error, OperationType.WRITE, path);
+    // Sanitize and compress heavy binary fields so document size is tiny (~30KB)
+    const safeTx = await sanitizeTransactionForFirestore(transaction);
+
+    // Save to Firestore (works both online and offline)
+    const setPromise = setDoc(doc(db, 'transactions', safeTx.id), safeTx);
+    
+    // Allow up to 4s for network confirmation, otherwise proceed immediately
+    const shortDelay = new Promise((resolve) => setTimeout(resolve, 4000));
+    await Promise.race([setPromise, shortDelay]);
+
+    return safeTx;
+  } catch (error: any) {
+    console.warn('Network sync delayed, proceeding with local saved state:', error);
+    return await sanitizeTransactionForFirestore(transaction);
   }
 }
 
@@ -83,7 +95,16 @@ export async function addNotaPhotosOnline(
     if (!docSnap.exists()) return null;
 
     const currentTx = docSnap.data() as Transaction;
-    const updatedNotas = [...(currentTx.notaFiles || []), ...newNotas];
+
+    // Compress incoming new photos
+    const compressedNewNotas = await Promise.all(
+      newNotas.map(async (nota) => ({
+        ...nota,
+        dataUrl: await compressImageDataUrl(nota.dataUrl, 900, 900, 0.6),
+      }))
+    );
+
+    const updatedNotas = [...(currentTx.notaFiles || []), ...compressedNewNotas];
 
     const updatedData = {
       notaFiles: updatedNotas,
@@ -94,7 +115,7 @@ export async function addNotaPhotosOnline(
     await updateDoc(docRef, updatedData);
     return { ...currentTx, ...updatedData };
   } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, path);
+    console.error('Error in addNotaPhotosOnline:', error);
     return null;
   }
 }
