@@ -19,6 +19,11 @@ service cloud.firestore {
       allow read, write: if isOwner(userId);
     }
 
+    // Settings collection
+    match /settings/{userId} {
+      allow read, write: if isOwner(userId);
+    }
+
     // Transactions collection - user specific
     match /transactions/{transactionId} {
       allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;

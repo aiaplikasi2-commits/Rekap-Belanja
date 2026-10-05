@@ -1,17 +1,156 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { User, Shield, CheckCircle2, FileSpreadsheet } from 'lucide-react';
+import {
+  getUserSettingsOnline,
+  saveUserSettingsOnline,
+  AppSettings,
+} from '../services/settingsService';
+import {
+  User,
+  Shield,
+  CheckCircle2,
+  FileSpreadsheet,
+  Folder,
+  ExternalLink,
+  Save,
+  Check,
+} from 'lucide-react';
 
 export const PengaturanView: React.FC = () => {
   const { profile, user } = useAuth();
+  const [driveUrl, setDriveUrl] = useState('');
+  const [companyName, setCompanyName] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [savedSuccess, setSavedSuccess] = useState(false);
+
+  useEffect(() => {
+    if (user?.uid) {
+      getUserSettingsOnline(user.uid).then((settings) => {
+        setDriveUrl(settings.googleDriveFolderUrl || '');
+        setCompanyName(settings.companyName || 'CV KUJANG LUHUR SEKAWAN');
+      });
+    }
+  }, [user]);
+
+  const handleSaveSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user?.uid) return;
+
+    setSaving(true);
+    setSavedSuccess(false);
+
+    try {
+      await saveUserSettingsOnline(user.uid, {
+        googleDriveFolderUrl: driveUrl.trim(),
+        companyName: companyName.trim(),
+      });
+      setSavedSuccess(true);
+      setTimeout(() => setSavedSuccess(false), 4000);
+    } catch (err) {
+      console.error('Error saving settings:', err);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <div className="space-y-6 pb-12 max-w-2xl">
+      {/* Title Header */}
       <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-        <h1 className="text-lg font-bold text-slate-900">Pengaturan & Profil Pengguna</h1>
-        <p className="text-xs text-slate-500">Informasi identitas aplikasi dan akun pengguna</p>
+        <h1 className="text-lg font-bold text-slate-900">Pengaturan & Integrasi Google Drive</h1>
+        <p className="text-xs text-slate-500">
+          Atur folder penyimpanan Google Drive dan informasi akun pengguna
+        </p>
       </div>
 
+      {/* GOOGLE DRIVE FOLDER SETTING CARD */}
+      <form onSubmit={handleSaveSettings} className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4 shadow-sm">
+        <div className="flex items-center justify-between border-b pb-3 border-slate-100">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 bg-indigo-100 text-indigo-700 rounded-xl">
+              <Folder className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="text-sm font-bold text-slate-900">Folder Penyimpanan Google Drive</h2>
+              <p className="text-xs text-slate-500">
+                Tautkan link folder Google Drive Anda untuk kemudahan akses dan sinkronisasi
+              </p>
+            </div>
+          </div>
+          {driveUrl.trim() && (
+            <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold">
+              ✅ Terhubung
+            </span>
+          )}
+        </div>
+
+        <div className="space-y-3 text-xs">
+          <div>
+            <label className="block text-slate-700 font-semibold mb-1">
+              Link / URL Folder Google Drive:
+            </label>
+            <input
+              type="url"
+              value={driveUrl}
+              onChange={(e) => setDriveUrl(e.target.value)}
+              placeholder="Contoh: https://drive.google.com/drive/folders/1a2b3c4d5e..."
+              className="w-full p-3 bg-slate-50 border border-slate-300 rounded-xl font-mono text-xs focus:bg-white focus:outline-none focus:border-indigo-600"
+            />
+            <p className="text-[11px] text-slate-500 mt-1">
+              Salin link folder dari Google Drive Anda dan tempel di sini. Saat membagikan rekap, tombol Google Drive dapat langsung mengarah ke folder ini.
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-slate-700 font-semibold mb-1">
+              Nama Perusahaan / Instansi:
+            </label>
+            <input
+              type="text"
+              value={companyName}
+              onChange={(e) => setCompanyName(e.target.value)}
+              placeholder="Nama Perusahaan"
+              className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-slate-900 focus:bg-white focus:outline-none focus:border-indigo-600"
+            />
+          </div>
+
+          <div className="pt-2 flex items-center justify-between gap-3">
+            {driveUrl.trim() ? (
+              <a
+                href={driveUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-3.5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold text-xs rounded-xl inline-flex items-center gap-1.5 transition"
+              >
+                <ExternalLink className="w-4 h-4 text-indigo-600" />
+                <span>Buka Folder Drive ↗</span>
+              </a>
+            ) : <div />}
+
+            <button
+              type="submit"
+              disabled={saving}
+              className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow flex items-center gap-2 transition active:scale-95 disabled:opacity-50"
+            >
+              {saving ? (
+                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              ) : savedSuccess ? (
+                <>
+                  <Check className="w-4 h-4 text-emerald-300" />
+                  <span>BERHASIL DISIMPAN!</span>
+                </>
+              ) : (
+                <>
+                  <Save className="w-4 h-4" />
+                  <span>SIMPAN PENGATURAN</span>
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      </form>
+
+      {/* APP INFO CARD */}
       <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4 shadow-sm">
         <div className="flex items-center gap-3 border-b pb-4 border-slate-100">
           <div className="w-12 h-12 rounded-2xl bg-blue-600 text-white flex items-center justify-center font-bold text-lg shadow-inner">
@@ -38,12 +177,13 @@ export const PengaturanView: React.FC = () => {
             <span className="text-slate-500 font-semibold">Status Penyimpanan Data:</span>
             <p className="font-bold text-emerald-700 text-sm flex items-center gap-1.5">
               <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-              <span>FULL ONLINE (Firestore Online Database)</span>
+              <span>FULL ONLINE (Firestore & Cache Terintegrasi)</span>
             </p>
           </div>
         </div>
       </div>
 
+      {/* USER ACCOUNT CARD */}
       <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4 shadow-sm">
         <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
           <User className="w-4 h-4 text-blue-600" />

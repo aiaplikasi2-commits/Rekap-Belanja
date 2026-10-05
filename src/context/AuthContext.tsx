@@ -9,7 +9,7 @@ import {
   GoogleAuthProvider,
   signInWithPopup,
 } from 'firebase/auth';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, getDocFromCache, setDoc } from 'firebase/firestore';
 import { auth, db, handleFirestoreError, OperationType } from '../firebase/config';
 import { UserProfile } from '../types';
 
@@ -36,27 +36,40 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUser(currentUser);
       if (currentUser) {
         const userRef = doc(db, 'users', currentUser.uid);
-        const fallbackProfile: UserProfile = {
-          uid: currentUser.uid,
-          email: currentUser.email || '',
-          displayName: currentUser.displayName || 'Pengguna',
-          companyName: 'CV KUJANG LUHUR SEKAWAN',
-          createdAt: new Date().toISOString(),
-        };
+        let profileData: UserProfile | null = null;
 
         try {
           const docSnap = await getDoc(userRef);
           if (docSnap.exists()) {
-            setProfile(docSnap.data() as UserProfile);
-          } else {
-            setProfile(fallbackProfile);
-            setDoc(userRef, fallbackProfile).catch((err) => {
-              console.warn('Could not sync user profile online:', err);
-            });
+            profileData = docSnap.data() as UserProfile;
           }
         } catch (error) {
-          console.warn('Offline or network error fetching user profile, using fallback profile:', error);
-          setProfile(fallbackProfile);
+          console.warn('Network/getDoc offline, checking cache or fallback:', error);
+          try {
+            const cacheSnap = await getDocFromCache(userRef);
+            if (cacheSnap.exists()) {
+              profileData = cacheSnap.data() as UserProfile;
+            }
+          } catch (cacheErr) {
+            // cache miss, proceed to default profile
+          }
+        }
+
+        if (profileData) {
+          setProfile(profileData);
+        } else {
+          const defaultProfile: UserProfile = {
+            uid: currentUser.uid,
+            email: currentUser.email || '',
+            displayName: currentUser.displayName || 'Pengguna',
+            companyName: 'CV KUJANG LUHUR SEKAWAN',
+            createdAt: new Date().toISOString(),
+          };
+          setProfile(defaultProfile);
+          // Try background save to Firestore if online
+          setDoc(userRef, defaultProfile, { merge: true }).catch((err) => {
+            console.warn('Deferred profile save while offline:', err?.message || err);
+          });
         }
       } else {
         setProfile(null);
@@ -84,9 +97,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       await setDoc(doc(db, 'users', res.user.uid), newProfile);
       setProfile(newProfile);
     } catch (err) {
-      // Set local profile even if offline write fails
-      setProfile(newProfile);
-      console.warn('Set profile offline:', err);
+      handleFirestoreError(err, OperationType.WRITE, `users/${res.user.uid}`);
     }
   };
 

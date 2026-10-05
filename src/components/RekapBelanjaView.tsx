@@ -11,11 +11,12 @@ import {
   shareAllNotas,
   triggerDownload,
   dataUrlToFile,
-  prepareTransactionDriveFiles,
-  prepareMasterDriveFiles,
+  shareToWhatsApp,
+  shareToEmail,
+  shareToGoogleDrive,
 } from '../services/exportShareService';
+import { ShareModal } from './ShareModal';
 import { addNotaPhotosOnline, deleteTransactionOnline } from '../services/transactionService';
-import { GoogleDriveShareModal, FileToUpload } from './GoogleDriveShareModal';
 import {
   Search,
   Filter,
@@ -32,6 +33,8 @@ import {
   FileText,
   Building2,
   Calendar,
+  MessageCircle,
+  Mail,
 } from 'lucide-react';
 
 interface RekapBelanjaViewProps {
@@ -53,30 +56,12 @@ export const RekapBelanjaView: React.FC<RekapBelanjaViewProps> = ({
     initialFilter === 'missing-nota' ? 'MISSING_NOTA' : 'ALL'
   );
 
-  // Selected Transaction for Detail Modal
+  // Selected Transaction for Detail Modal & Share Modal
   const [activeTx, setActiveTx] = useState<Transaction | null>(null);
+  const [sharingTx, setSharingTx] = useState<Transaction | null>(null);
   const [activeNotaViewer, setActiveNotaViewer] = useState<NotaPhoto | null>(null);
   const [addingNota, setAddingNota] = useState(false);
   const [deletingTxId, setDeletingTxId] = useState<string | null>(null);
-
-  // Google Drive Share Modal state
-  const [driveModalOpen, setDriveModalOpen] = useState(false);
-  const [driveModalTitle, setDriveModalTitle] = useState('');
-  const [driveModalFiles, setDriveModalFiles] = useState<FileToUpload[]>([]);
-
-  const handleShareMasterDrive = () => {
-    const files = prepareMasterDriveFiles(filteredTransactions);
-    setDriveModalTitle('Bagikan Rekap Keseluruhan ke Google Drive');
-    setDriveModalFiles(files);
-    setDriveModalOpen(true);
-  };
-
-  const handleShareSingleDrive = (tx: Transaction) => {
-    const files = prepareTransactionDriveFiles(tx);
-    setDriveModalTitle(`Bagikan File ${tx.satdikName} ke Google Drive`);
-    setDriveModalFiles(files);
-    setDriveModalOpen(true);
-  };
 
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
@@ -177,11 +162,11 @@ export const RekapBelanjaView: React.FC<RekapBelanjaViewProps> = ({
           {filteredTransactions.length > 0 && (
             <button
               type="button"
-              onClick={handleShareMasterDrive}
+              onClick={() => shareAllTransactionsExcel(filteredTransactions)}
               className="px-3.5 py-2 bg-emerald-700 hover:bg-emerald-600 text-white font-semibold text-xs rounded-xl shadow flex items-center gap-1.5 transition active:scale-95"
             >
               <FileSpreadsheet className="w-4 h-4" />
-              <span>📊 BAGIKAN REKAP KESELURUHAN (GOOGLE DRIVE)</span>
+              <span>📊 BAGIKAN REKAP KESELURUHAN (EXCEL)</span>
             </button>
           )}
           <div className="text-xs font-semibold bg-blue-50 text-blue-700 px-3 py-2 rounded-xl border border-blue-200">
@@ -311,21 +296,21 @@ export const RekapBelanjaView: React.FC<RekapBelanjaViewProps> = ({
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => shareExcelTransaction(tx)}
+                    onClick={() => shareToWhatsApp(tx)}
                     className="p-2 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-lg text-xs font-semibold flex items-center gap-1"
+                    title="Kirim ke WhatsApp"
                   >
-                    <FileSpreadsheet className="w-4 h-4" />
-                    <span className="hidden sm:inline">Excel</span>
+                    <MessageCircle className="w-4 h-4 fill-emerald-600 text-emerald-600" />
+                    <span className="hidden sm:inline">WhatsApp</span>
                   </button>
 
                   <button
                     type="button"
-                    onClick={() => handleShareSingleDrive(tx)}
+                    onClick={() => setSharingTx(tx)}
                     className="p-2 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg text-xs font-semibold flex items-center gap-1"
-                    title="Bagikan ke Google Drive"
                   >
                     <Share2 className="w-4 h-4" />
-                    <span className="hidden sm:inline">Bagikan ke Drive</span>
+                    <span className="hidden sm:inline">Bagikan</span>
                   </button>
 
                   <button
@@ -378,7 +363,7 @@ export const RekapBelanjaView: React.FC<RekapBelanjaViewProps> = ({
             {/* Status Checklist */}
             <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 flex flex-wrap items-center justify-between text-xs gap-2">
               <div>
-                <strong>Status Invoice:</strong> ✅ Ada ({activeTx.invoiceFileName || 'PDF Invoice'})
+                <strong>Status Invoice:</strong> ✅ Tersimpan ({activeTx.invoiceFileName || 'PDF Invoice'})
               </div>
               <div>
                 <strong>Status Nota Asli:</strong>{' '}
@@ -394,45 +379,38 @@ export const RekapBelanjaView: React.FC<RekapBelanjaViewProps> = ({
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
               <button
                 type="button"
-                onClick={() => shareExcelTransaction(activeTx)}
-                className="py-2.5 px-3 bg-emerald-700 hover:bg-emerald-600 text-white font-semibold text-xs rounded-xl flex items-center justify-center gap-1.5 shadow-sm"
+                onClick={() => shareToWhatsApp(activeTx)}
+                className="py-2.5 px-3 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs rounded-xl flex items-center justify-center gap-1.5 shadow-sm"
               >
-                <FileSpreadsheet className="w-4 h-4" />
-                <span>📊 EXPORT EXCEL</span>
+                <MessageCircle className="w-4 h-4 fill-white text-emerald-600" />
+                <span>WHATSAPP</span>
               </button>
 
               <button
                 type="button"
-                onClick={() => shareAllTransactionFiles(activeTx)}
+                onClick={() => shareToEmail(activeTx)}
                 className="py-2.5 px-3 bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs rounded-xl flex items-center justify-center gap-1.5 shadow-sm"
               >
-                <Share2 className="w-4 h-4" />
-                <span>📤 BAGIKAN</span>
+                <Mail className="w-4 h-4" />
+                <span>EMAIL / GMAIL</span>
               </button>
 
               <button
                 type="button"
-                onClick={() => {
-                  if (activeTx.invoicePdfData) {
-                    const cleanSatdik = sanitizeFileName(activeTx.satdikName);
-                    const f = dataUrlToFile(activeTx.invoicePdfData, `${cleanSatdik} - INVOICE.pdf`);
-                    triggerDownload(f, f.name);
-                  }
-                }}
-                disabled={!activeTx.invoicePdfData}
-                className="py-2.5 px-3 bg-slate-800 hover:bg-slate-700 text-white font-semibold text-xs rounded-xl flex items-center justify-center gap-1.5 disabled:opacity-50"
-              >
-                <FileText className="w-4 h-4" />
-                <span>📄 LIHAT INVOICE</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => shareAllTransactionFiles(activeTx)}
+                onClick={() => shareToGoogleDrive(activeTx)}
                 className="py-2.5 px-3 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs rounded-xl flex items-center justify-center gap-1.5 shadow-sm"
               >
                 <Cloud className="w-4 h-4" />
-                <span>☁️ SIMPAN KE DRIVE</span>
+                <span>GOOGLE DRIVE</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => shareExcelTransaction(activeTx)}
+                className="py-2.5 px-3 bg-emerald-800 hover:bg-emerald-700 text-white font-semibold text-xs rounded-xl flex items-center justify-center gap-1.5 shadow-sm"
+              >
+                <FileSpreadsheet className="w-4 h-4" />
+                <span>EXPORT EXCEL</span>
               </button>
 
               <button
@@ -441,7 +419,7 @@ export const RekapBelanjaView: React.FC<RekapBelanjaViewProps> = ({
                 className="py-2.5 px-3 bg-amber-600 hover:bg-amber-500 text-white font-semibold text-xs rounded-xl flex items-center justify-center gap-1.5 shadow-sm col-span-2 sm:col-span-1"
               >
                 <Plus className="w-4 h-4" />
-                <span>+ TAMBAH NOTA ASLI</span>
+                <span>+ NOTA ASLI</span>
               </button>
             </div>
 
@@ -643,13 +621,10 @@ export const RekapBelanjaView: React.FC<RekapBelanjaViewProps> = ({
         </div>
       )}
 
-      {/* GOOGLE DRIVE SHARE MODAL */}
-      <GoogleDriveShareModal
-        isOpen={driveModalOpen}
-        onClose={() => setDriveModalOpen(false)}
-        title={driveModalTitle}
-        files={driveModalFiles}
-      />
+      {/* SHARE MODAL */}
+      {sharingTx && (
+        <ShareModal transaction={sharingTx} onClose={() => setSharingTx(null)} />
+      )}
     </div>
   );
 };

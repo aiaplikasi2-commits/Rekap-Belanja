@@ -11,16 +11,16 @@ import {
   saveTransactionOnline,
 } from '../services/transactionService';
 import { saveCustomerOnline } from '../services/customerService';
-import { compressImageDataUrl } from '../services/imageCompression';
 import {
   formatRupiah,
   sanitizeFileName,
   getStandardFilePrefix,
   shareExcelTransaction,
   shareAllTransactionFiles,
-  prepareTransactionDriveFiles,
+  shareToWhatsApp,
+  shareToEmail,
+  shareToGoogleDrive,
 } from '../services/exportShareService';
-import { GoogleDriveShareModal, FileToUpload } from './GoogleDriveShareModal';
 import { Transaction, TransactionItem, NotaPhoto } from '../types';
 import {
   Upload,
@@ -39,6 +39,8 @@ import {
   Cloud,
   X,
   Edit3,
+  MessageCircle,
+  Mail,
 } from 'lucide-react';
 
 interface ImportPdfViewProps {
@@ -72,19 +74,6 @@ export const ImportPdfView: React.FC<ImportPdfViewProps> = ({ onSuccess, onNavig
   const [saving, setSaving] = useState(false);
   const [savedTransaction, setSavedTransaction] = useState<Transaction | null>(null);
   const [errorMessage, setErrorMessage] = useState<string>('');
-
-  // Google Drive Share Modal
-  const [driveModalOpen, setDriveModalOpen] = useState(false);
-  const [driveModalTitle, setDriveModalTitle] = useState('');
-  const [driveModalFiles, setDriveModalFiles] = useState<FileToUpload[]>([]);
-
-  const handleOpenDriveModal = () => {
-    if (!savedTransaction) return;
-    const files = prepareTransactionDriveFiles(savedTransaction);
-    setDriveModalTitle(`Unggah ${savedTransaction.satdikName} ke Google Drive`);
-    setDriveModalFiles(files);
-    setDriveModalOpen(true);
-  };
 
   // Refs for camera / gallery inputs
   const cameraInputRef = useRef<HTMLInputElement>(null);
@@ -140,24 +129,6 @@ export const ImportPdfView: React.FC<ImportPdfViewProps> = ({ onSuccess, onNavig
       setErrorMessage(err.message || 'Gagal membaca PDF.');
       setStep('upload');
     }
-  };
-
-  const handleStartManualInput = () => {
-    setSatdikName('');
-    setDocNumber('');
-    setItems([
-      {
-        no: 1,
-        itemName: '',
-        quantity: 1,
-        price: 0,
-        totalItem: 0,
-      },
-    ]);
-    setSelectedIndices([0]);
-    setNotaPhotos([]);
-    setErrorMessage('');
-    setStep('review');
   };
 
   // Checkbox handlers
@@ -229,11 +200,7 @@ export const ImportPdfView: React.FC<ImportPdfViewProps> = ({ onSuccess, onNavig
 
     Array.from(files).forEach((file, index) => {
       const reader = new FileReader();
-      reader.onload = async () => {
-        const rawUrl = reader.result as string;
-        // Compress image on capture for fast upload and Firestore compatibility
-        const compressedUrl = await compressImageDataUrl(rawUrl, 900, 900, 0.65);
-
+      reader.onload = () => {
         const nextIndex = notaPhotos.length + index + 1;
         const padNum = String(nextIndex).padStart(2, '0');
         const formattedFileName = `${cleanSatdik} - NOTA ${padNum}.jpg`;
@@ -241,7 +208,7 @@ export const ImportPdfView: React.FC<ImportPdfViewProps> = ({ onSuccess, onNavig
         const newNota: NotaPhoto = {
           id: `NOTA-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
           fileName: formattedFileName,
-          dataUrl: compressedUrl,
+          dataUrl: reader.result as string,
           uploadedAt: new Date().toISOString(),
         };
 
@@ -321,7 +288,7 @@ export const ImportPdfView: React.FC<ImportPdfViewProps> = ({ onSuccess, onNavig
     };
 
     try {
-      const savedTx = await saveTransactionOnline(newTx);
+      await saveTransactionOnline(newTx);
 
       // Auto-record Satdik into Customer database for this user
       try {
@@ -335,12 +302,11 @@ export const ImportPdfView: React.FC<ImportPdfViewProps> = ({ onSuccess, onNavig
         console.warn('Auto save customer info:', cErr);
       }
 
-      setSavedTransaction(savedTx);
+      setSavedTransaction(newTx);
       setStep('saved');
-      onSuccess(savedTx);
+      onSuccess(newTx);
     } catch (err: any) {
-      console.error('Save transaction error:', err);
-      setErrorMessage(err.message || 'Gagal menyimpan transaksi online. Periksa koneksi internet Anda.');
+      setErrorMessage(err.message || 'Gagal menyimpan transaksi online.');
     } finally {
       setSaving(false);
     }
@@ -387,27 +353,16 @@ export const ImportPdfView: React.FC<ImportPdfViewProps> = ({ onSuccess, onNavig
             </p>
           </div>
 
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
-            <label className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3.5 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white font-semibold text-sm rounded-xl shadow-lg shadow-blue-600/30 cursor-pointer transition active:scale-95">
-              <FileText className="w-5 h-5" />
-              <span>PILIH PDF DARI HP</span>
-              <input
-                type="file"
-                accept=".pdf,application/pdf"
-                onChange={handlePdfSelected}
-                className="hidden"
-              />
-            </label>
-
-            <button
-              type="button"
-              onClick={handleStartManualInput}
-              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold text-sm rounded-xl border border-slate-300 transition active:scale-95"
-            >
-              <Edit3 className="w-5 h-5 text-slate-600" />
-              <span>✏️ INPUT MANUALLY (TANPA PDF)</span>
-            </button>
-          </div>
+          <label className="inline-flex items-center justify-center gap-2 px-6 py-3.5 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white font-semibold text-sm rounded-xl shadow-lg shadow-blue-600/30 cursor-pointer transition active:scale-95">
+            <FileText className="w-5 h-5" />
+            <span>PILIH PDF DARI HP</span>
+            <input
+              type="file"
+              accept=".pdf,application/pdf"
+              onChange={handlePdfSelected}
+              className="hidden"
+            />
+          </label>
         </div>
       )}
 
@@ -735,33 +690,33 @@ export const ImportPdfView: React.FC<ImportPdfViewProps> = ({ onSuccess, onNavig
             </p>
           </div>
 
-          {/* Quick Actions */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-md mx-auto pt-2">
+          {/* Quick Share Actions */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 max-w-lg mx-auto pt-2">
             <button
               type="button"
-              onClick={handleOpenDriveModal}
-              className="py-3 px-4 bg-emerald-700 hover:bg-emerald-600 text-white font-bold text-xs rounded-xl shadow-lg flex items-center justify-center gap-2 transition active:scale-95 col-span-1 sm:col-span-2"
+              onClick={() => shareToWhatsApp(savedTransaction)}
+              className="py-3 px-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow flex items-center justify-center gap-1.5 transition active:scale-95"
             >
-              <Upload className="w-4 h-4" />
-              <span>🚀 BAGIKAN LANGSUNG KE GOOGLE DRIVE</span>
+              <MessageCircle className="w-4 h-4 fill-white text-emerald-600" />
+              <span>KIRIM WHATSAPP</span>
             </button>
 
             <button
               type="button"
-              onClick={() => shareExcelTransaction(savedTransaction)}
-              className="py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold text-xs rounded-xl flex items-center justify-center gap-2 transition active:scale-95"
+              onClick={() => shareToEmail(savedTransaction)}
+              className="py-3 px-3 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-xl shadow flex items-center justify-center gap-1.5 transition active:scale-95"
             >
-              <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
-              <span>Excel Lokal</span>
+              <Mail className="w-4 h-4" />
+              <span>KIRIM EMAIL</span>
             </button>
 
             <button
               type="button"
-              onClick={() => shareAllTransactionFiles(savedTransaction)}
-              className="py-2.5 px-4 bg-blue-50 hover:bg-blue-100 text-blue-700 font-semibold text-xs rounded-xl flex items-center justify-center gap-2 transition active:scale-95"
+              onClick={() => shareToGoogleDrive(savedTransaction)}
+              className="py-3 px-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl shadow flex items-center justify-center gap-1.5 transition active:scale-95"
             >
-              <Share2 className="w-4 h-4" />
-              <span>Share Sheet HP</span>
+              <Cloud className="w-4 h-4" />
+              <span>GOOGLE DRIVE</span>
             </button>
           </div>
 
@@ -852,14 +807,6 @@ export const ImportPdfView: React.FC<ImportPdfViewProps> = ({ onSuccess, onNavig
           </div>
         </div>
       )}
-
-      {/* GOOGLE DRIVE SHARE MODAL */}
-      <GoogleDriveShareModal
-        isOpen={driveModalOpen}
-        onClose={() => setDriveModalOpen(false)}
-        title={driveModalTitle}
-        files={driveModalFiles}
-      />
     </div>
   );
 };

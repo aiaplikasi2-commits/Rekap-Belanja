@@ -1,148 +1,154 @@
-import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getAuth, signInWithPopup, GoogleAuthProvider, User } from 'firebase/auth';
-import firebaseConfig from '../../firebase-applet-config.json';
+import { GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
+import { auth } from '../firebase/config';
 
-// Initialize or reuse Firebase App
-const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
-const auth = getAuth(app);
-
+// In-memory token cache (never stored in localStorage/sessionStorage per skill directives)
 let cachedDriveAccessToken: string | null = null;
 
-// Get current cached access token
-export function getCachedDriveAccessToken(): string | null {
+export function setCachedDriveToken(token: string | null) {
+  cachedDriveAccessToken = token;
+}
+
+export function getCachedDriveToken(): string | null {
   return cachedDriveAccessToken;
 }
 
-// Sign in with Google to obtain Google Drive access token
-export async function connectGoogleDrive(): Promise<{ user: User; accessToken: string }> {
+/**
+ * Request Google Drive OAuth permission from user via popup
+ */
+export async function authenticateGoogleDrive(): Promise<string> {
   const provider = new GoogleAuthProvider();
   provider.addScope('https://www.googleapis.com/auth/drive.file');
 
   try {
     const result = await signInWithPopup(auth, provider);
     const credential = GoogleAuthProvider.credentialFromResult(result);
+
     if (!credential?.accessToken) {
-      throw new Error('Gagal mendapatkan token akses Google Drive.');
+      throw new Error('Gagal mendapatkan token akses dari Google.');
     }
 
     cachedDriveAccessToken = credential.accessToken;
-    return { user: result.user, accessToken: cachedDriveAccessToken };
+    return cachedDriveAccessToken;
   } catch (error: any) {
-    console.error('Error connecting Google Drive:', error);
-    throw new Error(error.message || 'Gagal terhubung ke Google Drive.');
-  }
-}
-
-// Find or create a specific folder in Google Drive
-export async function getOrCreateDriveFolder(
-  folderName: string,
-  accessToken: string
-): Promise<string> {
-  // Search for existing folder
-  const queryParam = encodeURIComponent(
-    `name = '${folderName}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`
-  );
-  const searchRes = await fetch(
-    `https://www.googleapis.com/drive/v3/files?q=${queryParam}&fields=files(id,name)`,
-    {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
+    console.error('Error authenticating Google Drive:', error);
+    if (error?.code === 'auth/popup-closed-by-user') {
+      throw new Error('Proses login Google dibatalkan.');
     }
-  );
-
-  if (searchRes.ok) {
-    const data = await searchRes.json();
-    if (data.files && data.files.length > 0) {
-      return data.files[0].id;
+    if (error?.code === 'auth/access-denied') {
+      throw new Error('Izin akses Google Drive ditolak oleh pengguna.');
     }
+    throw new Error(error?.message || 'Gagal melakukan otorisasi akun Google.');
   }
-
-  // Create folder if not found
-  const createRes = await fetch('https://www.googleapis.com/drive/v3/files', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      name: folderName,
-      mimeType: 'application/vnd.google-apps.folder',
-    }),
-  });
-
-  if (!createRes.ok) {
-    const errText = await createRes.text();
-    console.error('Error creating folder in Drive:', errText);
-    throw new Error('Gagal membuat folder di Google Drive.');
-  }
-
-  const folderData = await createRes.json();
-  return folderData.id;
 }
 
 export interface DriveUploadResult {
-  fileId: string;
+  id: string;
   name: string;
-  webViewLink?: string;
-  webContentLink?: string;
+  mimeType: string;
+  webViewLink: string;
 }
 
-// Upload a Blob/File directly to Google Drive
-export async function uploadFileToGoogleDrive({
-  blob,
-  fileName,
-  mimeType,
-  folderName = 'REKAP BELANJA ONLINE',
-}: {
-  blob: Blob;
-  fileName: string;
-  mimeType: string;
-  folderName?: string;
-}): Promise<DriveUploadResult> {
-  let token = cachedDriveAccessToken;
+/**
+ * Upload a Blob or File directly to Google Drive using Drive v3 API
+ */
+export async function uploadFileToGoogleDrive(
+  fileBlob: Blob,
+  fileName: string,
+  mimeType: string,
+  onProgress?: (progressPercent: number) => void
+): Promise<DriveUploadResult> {
+  let token = getCachedDriveToken();
 
-  // Prompt user to connect Google Drive if token not cached
   if (!token) {
-    const connectResult = await connectGoogleDrive();
-    token = connectResult.accessToken;
+    token = await authenticateGoogleDrive();
   }
 
-  // Ensure folder exists
-  const folderId = await getOrCreateDriveFolder(folderName, token);
+  try {
+    return await doDriveMultipartUpload(fileBlob, fileName, mimeType, token, onProgress);
+  } catch (err: any) {
+    // If token expired (401), re-authenticate once and retry
+    if (err?.status === 401 || err?.message?.includes('401')) {
+      console.warn('Google Drive token expired, re-authenticating...');
+      token = await authenticateGoogleDrive();
+      return await doDriveMultipartUpload(fileBlob, fileName, mimeType, token, onProgress);
+    }
+    throw err;
+  }
+}
 
-  // Prepare multipart upload
+async function doDriveMultipartUpload(
+  fileBlob: Blob,
+  fileName: string,
+  mimeType: string,
+  accessToken: string,
+  onProgress?: (progressPercent: number) => void
+): Promise<DriveUploadResult> {
+  onProgress?.(10);
+
   const metadata = {
     name: fileName,
     mimeType: mimeType,
-    parents: [folderId],
   };
 
-  const formData = new FormData();
-  formData.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
-  formData.append('file', blob);
+  const boundary = '-------314159265358979323846';
+  const delimiter = `\r\n--${boundary}\r\n`;
+  const closeDelimiter = `\r\n--${boundary}--`;
 
-  const uploadRes = await fetch(
-    'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink,webContentLink',
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-      body: formData,
-    }
-  );
+  const metadataHeaders = 'Content-Type: application/json; charset=UTF-8\r\n\r\n';
+  const fileHeaders = `Content-Type: ${mimeType}\r\n\r\n`;
 
-  if (!uploadRes.ok) {
-    const errText = await uploadRes.text();
-    console.error('Drive Upload Error:', errText);
-    // Token might be expired, reset cached token
-    if (uploadRes.status === 401) {
-      cachedDriveAccessToken = null;
+  // Read file data as ArrayBuffer
+  const fileArrayBuffer = await fileBlob.arrayBuffer();
+  const fileUint8 = new Uint8Array(fileArrayBuffer);
+
+  const metadataString = delimiter + metadataHeaders + JSON.stringify(metadata) + delimiter + fileHeaders;
+  const metadataBytes = new TextEncoder().encode(metadataString);
+  const closeBytes = new TextEncoder().encode(closeDelimiter);
+
+  // Combine into a single ArrayBuffer payload
+  const payloadLength = metadataBytes.length + fileUint8.length + closeBytes.length;
+  const payload = new Uint8Array(payloadLength);
+  payload.set(metadataBytes, 0);
+  payload.set(fileUint8, metadataBytes.length);
+  payload.set(closeBytes, metadataBytes.length + fileUint8.length);
+
+  onProgress?.(40);
+
+  const response = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,mimeType,webViewLink', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': `multipart/related; boundary=${boundary}`,
+    },
+    body: payload,
+  });
+
+  onProgress?.(90);
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error('Google Drive API upload error response:', errorText);
+
+    if (response.status === 401) {
+      const err = new Error('Akses token Google telah kedaluwarsa.');
+      (err as any).status = 401;
+      throw err;
     }
-    throw new Error(`Gagal mengunggah file '${fileName}' ke Google Drive: ${errText}`);
+    if (response.status === 403) {
+      throw new Error('Izin mengunggah file ke Google Drive tidak mencukupi atau kuota habis.');
+    }
+    throw new Error(`Gagal mengunggah file ke Google Drive (Status ${response.status}).`);
   }
 
-  const driveFile: DriveUploadResult = await uploadRes.json();
-  return driveFile;
+  const data = await response.json();
+  onProgress?.(100);
+
+  const webViewLink = data.webViewLink || `https://drive.google.com/file/d/${data.id}/view`;
+
+  return {
+    id: data.id,
+    name: data.name || fileName,
+    mimeType: data.mimeType || mimeType,
+    webViewLink,
+  };
 }

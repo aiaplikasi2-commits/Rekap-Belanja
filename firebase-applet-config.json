@@ -1,11 +1,12 @@
 {
-  "projectId": "delta-totality-5lxdt",
-  "appId": "1:132937409403:web:757d60889595fe1f4993de",
-  "apiKey": "AIzaSyDyjV0oqhshSz9ze_GjQDThkbIjxzn8tDA",
-  "authDomain": "delta-totality-5lxdt.firebaseapp.com",
-  "storageBucket": "delta-totality-5lxdt.firebasestorage.app",
-  "messagingSenderId": "132937409403",
+  "projectId": "gen-lang-client-0345257366",
+  "appId": "1:525623669809:web:72706e547dea0d65d25110",
+  "apiKey": "AIzaSyCtPcOzNXav4rblxUo8MYzAUIGMOhFsgl0",
+  "authDomain": "gen-lang-client-0345257366.firebaseapp.com",
+  "storageBucket": "gen-lang-client-0345257366.firebasestorage.app",
+  "messagingSenderId": "525623669809",
   "measurementId": "",
-  "oAuthClientId": "132937409403-istkn9l29vd07a3sfgle0sia6ouv6o35.apps.googleusercontent.com",
+  "oAuthClientId": "525623669809-12iuj6od4ua5cmclm44oq5amqdgqjo0q.apps.googleusercontent.com",
+  "firestoreDatabaseId": "ai-studio-4fcfb5d1-63f5-47b3-8e28-192ec349a7ae",
   "recaptchaSiteKey": ""
 }

@@ -206,7 +206,64 @@ export function triggerDownload(blob: Blob, fileName: string) {
   URL.revokeObjectURL(url);
 }
 
-// Android Share Sheet Action
+// Build formatted text summary for sharing
+export function buildTransactionShareText(transaction: Transaction): string {
+  const itemsText = (transaction.items || [])
+    .map(
+      (it, idx) =>
+        `${idx + 1}. ${it.itemName}\n   • Qty: ${it.quantity} x ${formatRupiah(it.price)} = ${formatRupiah(it.totalItem)}`
+    )
+    .join('\n');
+
+  return `📋 *REKAP BELANJA ONLINE*
+━━━━━━━━━━━━━━━━━━━━
+🏫 *Satdik*: ${transaction.satdikName}
+📅 *Tanggal*: ${transaction.date}
+📄 *No Invoice*: ${transaction.invoiceDocNumber || '-'}
+💰 *TOTAL BELANJA*: ${formatRupiah(transaction.totalAmount)}
+━━━━━━━━━━━━━━━━━━━━
+*RINCIAN BARANG/JASA*:
+${itemsText}
+
+------------------------------------
+*Diunggah via Aplikasi Rekap Belanja Online*`;
+}
+
+// Share directly to WhatsApp
+export function shareToWhatsApp(transaction: Transaction) {
+  const text = buildTransactionShareText(transaction);
+  const waUrl = `https://wa.me/?text=${encodeURIComponent(text)}`;
+  window.open(waUrl, '_blank');
+}
+
+// Share directly to Email / Gmail
+export function shareToEmail(transaction: Transaction) {
+  const subject = `Rekap Belanja - ${transaction.satdikName} (${transaction.date})`;
+  const body = buildTransactionShareText(transaction);
+  const mailtoUrl = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  window.location.href = mailtoUrl;
+}
+
+import { uploadFileToGoogleDrive } from './googleDriveService';
+
+// Share to Google Drive directly without forcing local downloads
+export async function shareToGoogleDrive(transaction: Transaction) {
+  const { blob, fileName } = generateTransactionExcel(transaction);
+  try {
+    const result = await uploadFileToGoogleDrive(
+      blob,
+      fileName,
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
+    window.open(result.webViewLink, '_blank');
+    return result;
+  } catch (err: any) {
+    console.error('Error uploading to Google Drive:', err);
+    alert(err?.message || 'Gagal menyimpan file ke Google Drive.');
+  }
+}
+
+// Android / Native Web Share Sheet Action
 export async function shareFilesToAndroid(files: File[], title: string, text: string) {
   if (navigator.canShare && navigator.canShare({ files })) {
     try {
@@ -223,10 +280,9 @@ export async function shareFilesToAndroid(files: File[], title: string, text: st
     }
   }
 
-  // Fallback: download files sequentially
-  files.forEach((f) => {
-    triggerDownload(f, f.name);
-  });
+  // Fallback: Share via WhatsApp web if native file share is unsupported in preview/desktop
+  const waUrl = `https://wa.me/?text=${encodeURIComponent(`${title}\n${text}`)}`;
+  window.open(waUrl, '_blank');
   return false;
 }
 
@@ -312,60 +368,4 @@ export async function shareAllTransactionFiles(transaction: Transaction) {
     `Dokumen Lengkap - ${transaction.satdikName}`,
     `Rekap Belanja, Nota, dan Invoice untuk ${transaction.satdikName}`
   );
-}
-
-// Helpers for Google Drive Direct Upload
-export function prepareTransactionDriveFiles(transaction: Transaction) {
-  const fileItems: Array<{ name: string; blob: Blob; mimeType: string; typeLabel: 'excel' | 'pdf' | 'image' | 'other' }> = [];
-  const prefix = getStandardFilePrefix(transaction);
-
-  // 1. Excel File
-  const { blob: excelBlob, fileName: excelFileName } = generateTransactionExcel(transaction);
-  fileItems.push({
-    name: excelFileName,
-    blob: excelBlob,
-    mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    typeLabel: 'excel',
-  });
-
-  // 2. Invoice PDF if exists
-  if (transaction.invoicePdfData) {
-    const pdfFileName = `${prefix} - INVOICE.pdf`;
-    const pdfFile = dataUrlToFile(transaction.invoicePdfData, pdfFileName);
-    fileItems.push({
-      name: pdfFileName,
-      blob: pdfFile,
-      mimeType: 'application/pdf',
-      typeLabel: 'pdf',
-    });
-  }
-
-  // 3. Nota Photos
-  if (transaction.notaFiles && transaction.notaFiles.length > 0) {
-    transaction.notaFiles.forEach((nota, idx) => {
-      const padNum = String(idx + 1).padStart(2, '0');
-      const fName = `${prefix} - NOTA ${padNum}.jpg`;
-      const imgFile = dataUrlToFile(nota.dataUrl, fName);
-      fileItems.push({
-        name: fName,
-        blob: imgFile,
-        mimeType: 'image/jpeg',
-        typeLabel: 'image',
-      });
-    });
-  }
-
-  return fileItems;
-}
-
-export function prepareMasterDriveFiles(transactions: Transaction[]) {
-  const { blob: excelBlob, fileName: excelFileName } = generateAllTransactionsExcel(transactions);
-  return [
-    {
-      name: excelFileName,
-      blob: excelBlob,
-      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      typeLabel: 'excel' as const,
-    },
-  ];
 }

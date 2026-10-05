@@ -11,7 +11,6 @@ import {
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase/config';
 import { Transaction, NotaPhoto } from '../types';
-import { sanitizeTransactionForFirestore, compressImageDataUrl } from './imageCompression';
 
 export function generateTransactionId(): string {
   const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
@@ -19,11 +18,83 @@ export function generateTransactionId(): string {
   return `TRX-${dateStr}-${rand}`;
 }
 
+// Local Storage Cache Helpers
+function getTxCacheKey(userId: string): string {
+  return `REKAP_TX_CACHE_${userId}`;
+}
+
+export function getLocalCachedTransactions(userId: string): Transaction[] {
+  try {
+    const raw = localStorage.getItem(getTxCacheKey(userId));
+    if (raw) {
+      return JSON.parse(raw);
+    }
+  } catch (e) {
+    console.warn('Error reading local tx cache:', e);
+  }
+  return [];
+}
+
+export function saveLocalCachedTransaction(transaction: Transaction): void {
+  try {
+    const list = getLocalCachedTransactions(transaction.userId);
+    const existingIndex = list.findIndex((t) => t.id === transaction.id);
+    if (existingIndex >= 0) {
+      list[existingIndex] = transaction;
+    } else {
+      list.unshift(transaction);
+    }
+    localStorage.setItem(getTxCacheKey(transaction.userId), JSON.stringify(list));
+  } catch (e) {
+    console.warn('Error saving local tx cache:', e);
+  }
+}
+
+export function removeLocalCachedTransaction(userId: string, transactionId: string): void {
+  try {
+    const list = getLocalCachedTransactions(userId).filter((t) => t.id !== transactionId);
+    localStorage.setItem(getTxCacheKey(userId), JSON.stringify(list));
+  } catch (e) {
+    console.warn('Error removing local tx cache:', e);
+  }
+}
+
+/**
+ * Sanitize transaction payload to prevent Firestore 1MB document size limit errors.
+ * If Base64 strings (invoice PDF or nota photos) exceed 300KB, create a lightweight copy for Firestore.
+ */
+function sanitizeTxForFirestore(tx: Transaction): Transaction {
+  const copy = { ...tx };
+
+  // Truncate invoicePdfData if it exceeds 350,000 chars (~260KB)
+  if (copy.invoicePdfData && copy.invoicePdfData.length > 350000) {
+    copy.invoicePdfData = copy.invoicePdfData.slice(0, 350000);
+  }
+
+  // Truncate nota files if total size is huge
+  if (copy.notaFiles && copy.notaFiles.length > 0) {
+    copy.notaFiles = copy.notaFiles.map((n) => {
+      if (n.dataUrl && n.dataUrl.length > 250000) {
+        return { ...n, dataUrl: n.dataUrl.slice(0, 250000) };
+      }
+      return n;
+    });
+  }
+
+  return copy;
+}
+
 export async function checkDuplicatePdf(
   userId: string,
   pdfHash: string,
   docNumber?: string
 ): Promise<Transaction | null> {
+  const localList = getLocalCachedTransactions(userId);
+  for (const data of localList) {
+    if (pdfHash && data.pdfHash === pdfHash) return data;
+    if (docNumber && docNumber.trim() !== '' && data.invoiceDocNumber === docNumber) return data;
+  }
+
   const path = 'transactions';
   try {
     const q = query(collection(db, path), where('userId', '==', userId));
@@ -31,56 +102,69 @@ export async function checkDuplicatePdf(
 
     for (const docSnap of snapshot.docs) {
       const data = docSnap.data() as Transaction;
-      if (pdfHash && data.pdfHash === pdfHash) {
-        return data;
-      }
-      if (docNumber && docNumber.trim() !== '' && data.invoiceDocNumber === docNumber) {
-        return data;
-      }
+      if (pdfHash && data.pdfHash === pdfHash) return data;
+      if (docNumber && docNumber.trim() !== '' && data.invoiceDocNumber === docNumber) return data;
     }
     return null;
   } catch (error) {
-    console.warn('Check duplicate error:', error);
+    console.warn('Duplicate check online error, using local result:', error);
     return null;
   }
 }
 
-export async function saveTransactionOnline(transaction: Transaction): Promise<Transaction> {
+export async function saveTransactionOnline(transaction: Transaction): Promise<void> {
+  // Always store locally first for instant availability
+  saveLocalCachedTransaction(transaction);
+
   const path = `transactions/${transaction.id}`;
+  const sanitized = sanitizeTxForFirestore(transaction);
+
+  // Set timeout of 6 seconds to prevent perpetual spinning if Firestore network is slow/offline
+  const timeoutPromise = new Promise<void>((resolve) => {
+    setTimeout(() => {
+      console.warn('Firestore write timed out, saved locally in cache.');
+      resolve();
+    }, 6000);
+  });
+
   try {
-    // Sanitize and compress heavy binary fields so document size is tiny (~30KB)
-    const safeTx = await sanitizeTransactionForFirestore(transaction);
-
-    // Save to Firestore (works both online and offline)
-    const setPromise = setDoc(doc(db, 'transactions', safeTx.id), safeTx);
-    
-    // Allow up to 4s for network confirmation, otherwise proceed immediately
-    const shortDelay = new Promise((resolve) => setTimeout(resolve, 4000));
-    await Promise.race([setPromise, shortDelay]);
-
-    return safeTx;
-  } catch (error: any) {
-    console.warn('Network sync delayed, proceeding with local saved state:', error);
-    return await sanitizeTransactionForFirestore(transaction);
+    const firestoreWrite = setDoc(doc(db, 'transactions', transaction.id), sanitized);
+    await Promise.race([firestoreWrite, timeoutPromise]);
+  } catch (error) {
+    console.warn('Firestore setDoc failed, transaction safely retained in local storage:', error);
   }
 }
 
 export async function getUserTransactionsOnline(userId: string): Promise<Transaction[]> {
+  const localList = getLocalCachedTransactions(userId);
   const path = 'transactions';
+
   try {
     const q = query(collection(db, path), where('userId', '==', userId));
     const snapshot = await getDocs(q);
-    const list: Transaction[] = [];
+    const onlineList: Transaction[] = [];
+
     snapshot.forEach((docSnap) => {
-      list.push(docSnap.data() as Transaction);
+      onlineList.push(docSnap.data() as Transaction);
     });
 
-    // Sort by createdAt descending
-    list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-    return list;
+    // Merge online transactions with local cache (avoid duplicates by ID)
+    const txMap = new Map<string, Transaction>();
+    localList.forEach((t) => txMap.set(t.id, t));
+    onlineList.forEach((t) => txMap.set(t.id, t));
+
+    const combined = Array.from(txMap.values());
+    combined.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+    // Update local cache
+    try {
+      localStorage.setItem(getTxCacheKey(userId), JSON.stringify(combined));
+    } catch (e) {}
+
+    return combined;
   } catch (error) {
-    handleFirestoreError(error, OperationType.LIST, path);
-    return [];
+    console.warn('Fetching online transactions failed, returning local cache:', error);
+    return localList;
   }
 }
 
@@ -92,30 +176,36 @@ export async function addNotaPhotosOnline(
   try {
     const docRef = doc(db, 'transactions', transactionId);
     const docSnap = await getDoc(docRef);
-    if (!docSnap.exists()) return null;
 
-    const currentTx = docSnap.data() as Transaction;
+    let currentTx: Transaction | null = null;
+    if (docSnap.exists()) {
+      currentTx = docSnap.data() as Transaction;
+    } else {
+      // Find in local cache
+      const localList = getLocalCachedTransactions('');
+      currentTx = localList.find((t) => t.id === transactionId) || null;
+    }
 
-    // Compress incoming new photos
-    const compressedNewNotas = await Promise.all(
-      newNotas.map(async (nota) => ({
-        ...nota,
-        dataUrl: await compressImageDataUrl(nota.dataUrl, 900, 900, 0.6),
-      }))
-    );
+    if (!currentTx) return null;
 
-    const updatedNotas = [...(currentTx.notaFiles || []), ...compressedNewNotas];
-
+    const updatedNotas = [...(currentTx.notaFiles || []), ...newNotas];
     const updatedData = {
       notaFiles: updatedNotas,
       hasNota: updatedNotas.length > 0,
       updatedAt: new Date().toISOString(),
     };
 
-    await updateDoc(docRef, updatedData);
-    return { ...currentTx, ...updatedData };
+    const fullUpdated = { ...currentTx, ...updatedData };
+    saveLocalCachedTransaction(fullUpdated);
+
+    // Async write to Firestore
+    updateDoc(docRef, updatedData).catch((err) =>
+      console.warn('Background updateDoc failed:', err)
+    );
+
+    return fullUpdated;
   } catch (error) {
-    console.error('Error in addNotaPhotosOnline:', error);
+    console.warn('Error adding nota photos:', error);
     return null;
   }
 }
@@ -123,8 +213,9 @@ export async function addNotaPhotosOnline(
 export async function deleteTransactionOnline(transactionId: string): Promise<void> {
   const path = `transactions/${transactionId}`;
   try {
+    // Delete from Firestore
     await deleteDoc(doc(db, 'transactions', transactionId));
   } catch (error) {
-    handleFirestoreError(error, OperationType.DELETE, path);
+    console.warn('Error deleting from Firestore:', error);
   }
 }
